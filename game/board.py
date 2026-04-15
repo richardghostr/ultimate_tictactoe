@@ -91,6 +91,118 @@ class Board:
         return new
 
     # ------------------------------------------------------------------
+    # Helpers for local/global winner detection (used by in-place moves)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _winning_lines():
+        return [
+            [(0,0),(0,1),(0,2)],
+            [(1,0),(1,1),(1,2)],
+            [(2,0),(2,1),(2,2)],
+            [(0,0),(1,0),(2,0)],
+            [(0,1),(1,1),(2,1)],
+            [(0,2),(1,2),(2,2)],
+            [(0,0),(1,1),(2,2)],
+            [(0,2),(1,1),(2,0)],
+        ]
+
+    @staticmethod
+    def _check_winner_3x3(grid):
+        for line in Board._winning_lines():
+            vals = [grid[r][c] for r, c in line]
+            if vals[0] != EMPTY and vals[0] == vals[1] == vals[2]:
+                return vals[0]
+        return EMPTY
+
+    @staticmethod
+    def _is_full_3x3(grid):
+        return all(grid[r][c] != EMPTY for r in range(3) for c in range(3))
+
+    def _update_local_and_global_after_move(self, gr, gc):
+        # Update local winner for the subgrid (gr,gc)
+        if self.local_winner[gr][gc] == EMPTY:
+            local_grid = self.cells[gr][gc]
+            winner = Board._check_winner_3x3(local_grid)
+            if winner != EMPTY:
+                self.local_winner[gr][gc] = winner
+            elif Board._is_full_3x3(local_grid):
+                self.local_winner[gr][gc] = DRAW
+
+        # Update global winner
+        if self.global_winner == EMPTY:
+            meta = [
+                [self.local_winner[r][c] if self.local_winner[r][c] != DRAW else EMPTY
+                 for c in range(3)]
+                for r in range(3)
+            ]
+            winner = Board._check_winner_3x3(meta)
+            if winner != EMPTY:
+                self.global_winner = winner
+                return
+            all_done = all(self.local_winner[r][c] != EMPTY for r in range(3) for c in range(3))
+            if all_done:
+                self.global_winner = DRAW
+
+    # ------------------------------------------------------------------
+    # In-place move application / undo
+    # ------------------------------------------------------------------
+
+    def make_move(self, move):
+        """Applique `move` en place et retourne un objet undo.
+
+        L'objet retourné contient les informations nécessaires pour annuler
+        le coup via `undo_move(undo_obj)`.
+        """
+        gr, gc, lr, lc = move
+
+        prev_cell = self.cells[gr][gc][lr][lc]
+        if prev_cell != EMPTY:
+            raise ValueError("make_move: case déjà occupée")
+
+        prev_local = self.local_winner[gr][gc]
+        prev_global = self.global_winner
+        prev_active = self.active_grid
+        prev_player = self.current_player
+        prev_move_count = self.move_count
+
+        # Apply
+        self.cells[gr][gc][lr][lc] = self.current_player
+        self.move_count += 1
+
+        # Update local/global winners and compute next active grid
+        self._update_local_and_global_after_move(gr, gc)
+
+        if not self.is_terminal():
+            target = (lr, lc)
+            if self.is_subgrid_done(target[0], target[1]):
+                self.active_grid = None
+            else:
+                self.active_grid = target
+        else:
+            self.active_grid = None
+
+        # Switch player
+        self.current_player = self.opponent(prev_player)
+
+        undo = (move, prev_local, prev_global, prev_active, prev_player, prev_move_count)
+        return undo
+
+    def undo_move(self, undo_obj):
+        """Annule un coup appliqué par `make_move` en restaurant l'état."""
+        (gr, gc, lr, lc), prev_local, prev_global, prev_active, prev_player, prev_move_count = undo_obj
+
+        # Clear the cell
+        self.cells[gr][gc][lr][lc] = EMPTY
+
+        # Restore state
+        self.local_winner[gr][gc] = prev_local
+        self.global_winner = prev_global
+        self.active_grid = prev_active
+        self.current_player = prev_player
+        self.move_count = prev_move_count
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 

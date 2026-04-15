@@ -1,0 +1,6 @@
+include README.md
+graft ai
+graft game
+graft scripts
+include ai/heuristic_weights.json
+include ai/tt.pkl

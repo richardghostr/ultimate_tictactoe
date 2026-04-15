@@ -24,6 +24,13 @@ from ai.heuristic import evaluate, terminal_score, SCORE_GLOBAL_WIN
 from game.rules import get_legal_moves, apply_move
 from game.board import PLAYER_X, PLAYER_O, EMPTY
 
+# Transposition table (Zobrist)
+from ai.tt import (
+    default_tt,
+    compute_zobrist_from_cells,
+    EXACT, LOWERBOUND, UPPERBOUND,
+)
+
 
 # ------------------------------------------------------------------
 # Ordonnancement des coups (move ordering)
@@ -66,6 +73,26 @@ def minimax(board, depth, alpha, beta, maximizing_player, root_player=PLAYER_X):
     --------
     float — valeur heuristique du nœud
     """
+    # --- Transposition table lookup ---
+    try:
+        key = compute_zobrist_from_cells(board.cells)
+    except Exception:
+        key = None
+
+    if key is not None:
+        entry = default_tt.get(key)
+        if entry is not None:
+            val, e_depth, flag, best_move = entry
+            if e_depth >= depth:
+                if flag == EXACT:
+                    return val
+                if flag == LOWERBOUND:
+                    alpha = max(alpha, val)
+                elif flag == UPPERBOUND:
+                    beta = min(beta, val)
+                if alpha >= beta:
+                    return val
+
     # --- Cas de base : nœud terminal ou profondeur atteinte ---
     if board.is_terminal():
         return terminal_score(board, player=root_player)
@@ -80,24 +107,64 @@ def minimax(board, depth, alpha, beta, maximizing_player, root_player=PLAYER_X):
     # Ordonner les coups pour maximiser les coupures
     moves = sorted(moves, key=_move_order_key)
 
+    # Keep original bounds to determine entry flag when storing
+    orig_alpha = alpha
+    orig_beta = beta
+
     if maximizing_player:
         value = -math.inf
+        best_mv = None
         for move in moves:
-            child = apply_move(board, move)
-            value = max(value, minimax(child, depth - 1, alpha, beta, False, root_player))
+            undo = board.make_move(move)
+            try:
+                v = minimax(board, depth - 1, alpha, beta, False, root_player)
+            finally:
+                board.undo_move(undo)
+            if v > value:
+                value = v
+                best_mv = move
             alpha = max(alpha, value)
             if alpha >= beta:
                 break   # Coupure Beta (le MIN ne choisira pas cette branche)
+
+        # Store in TT
+        if key is not None:
+            if value <= orig_alpha:
+                flag = UPPERBOUND
+            elif value >= orig_beta:
+                flag = LOWERBOUND
+            else:
+                flag = EXACT
+            default_tt.store(key, value, depth, flag, best_mv)
+
         return value
 
     else:
         value = math.inf
+        best_mv = None
         for move in moves:
-            child = apply_move(board, move)
-            value = min(value, minimax(child, depth - 1, alpha, beta, True, root_player))
+            undo = board.make_move(move)
+            try:
+                v = minimax(board, depth - 1, alpha, beta, True, root_player)
+            finally:
+                board.undo_move(undo)
+            if v < value:
+                value = v
+                best_mv = move
             beta = min(beta, value)
             if alpha >= beta:
                 break   # Coupure Alpha (le MAX ne choisira pas cette branche)
+
+        # Store in TT
+        if key is not None:
+            if value <= orig_alpha:
+                flag = UPPERBOUND
+            elif value >= orig_beta:
+                flag = LOWERBOUND
+            else:
+                flag = EXACT
+            default_tt.store(key, value, depth, flag, best_mv)
+
         return value
 
 
@@ -140,9 +207,12 @@ def get_best_move(board, depth=3, root_player=None):
 
     # L'IA est MAX quand c'est son tour
     for move in moves:
-        child = apply_move(board, move)
-        # Après notre coup, c'est au MIN de jouer
-        value = minimax(child, depth - 1, alpha, beta, False, root_player)
+        undo = board.make_move(move)
+        try:
+            # Après notre coup, c'est au MIN de jouer
+            value = minimax(board, depth - 1, alpha, beta, False, root_player)
+        finally:
+            board.undo_move(undo)
 
         if value > best_value:
             best_value = value

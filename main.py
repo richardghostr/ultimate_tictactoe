@@ -21,6 +21,10 @@ from game.board import PLAYER_X, PLAYER_O, DRAW
 from game.game import Game
 from ai.player import HumanPlayer, AIPlayer
 
+# Persistence for TT and heuristic
+from ai.tt import load_default as load_tt, save_default as save_tt
+from ai.heuristic import load_weights, save_weights
+
 
 # ------------------------------------------------------------------
 # Scoring DVO (barème du projet)
@@ -204,8 +208,20 @@ def main():
     parser.add_argument("--no-display", action="store_true", help="Désactiver l'affichage (IA vs IA)")
     parser.add_argument("--time-limit", type=float, default=None,
                         help="Limite de temps par coup en secondes (approfondissement itératif)")
+    parser.add_argument("--train", action="store_true",
+                        help="Après IA vs IA, lancer un entraînement self-play pour améliorer l'heuristique")
 
     args = parser.parse_args()
+
+    # Charger les poids et la table de transposition si présentes
+    try:
+        load_weights('ai/heuristic_weights.json')
+    except Exception:
+        pass
+    try:
+        load_tt('ai/tt.pkl')
+    except Exception:
+        pass
 
     if args.mode is None:
         # Menu interactif
@@ -225,10 +241,29 @@ def main():
             show=not args.no_display,
             time_limit=args.time_limit
         )
+        if args.train:
+            try:
+                from scripts.train_selfplay import train
+                print("Lancement de l'entraînement self-play (hill-climb)...")
+                train(iterations=30, games_per_test=6, noise=0.12)
+                print("Entraînement terminé — poids sauvegardés dans ai/heuristic_weights.json")
+            except Exception as e:
+                print("Erreur lors de l'entraînement :", e)
 
     elif args.mode == "human_vs_human":
         play_human_vs_human()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # Sauvegarde automatique à la sortie
+        try:
+            save_weights('ai/heuristic_weights.json')
+        except Exception:
+            pass
+        try:
+            save_tt('ai/tt.pkl')
+        except Exception:
+            pass
