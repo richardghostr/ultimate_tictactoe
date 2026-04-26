@@ -20,7 +20,7 @@ _SEP_INNER = '-'   # séparateur entre cases dans une sous-grille
 _SEP_OUTER = '='   # séparateur entre sous-grilles
 
 
-def display_board(board, last_move=None):
+def display_board(board, last_move=None, timer=None):
     """
     Affiche la grille complète dans le terminal.
 
@@ -71,7 +71,7 @@ def display_board(board, last_move=None):
 
     print()
     _print_col_header()
-    _print_status(board)
+    _print_status(board, timer=timer)
     print()
 
 
@@ -112,8 +112,8 @@ def _render_won_subgrid_row(winner, lr):
         return '         '
 
 
-def _print_status(board):
-    """Affiche les informations sur l'état de la partie."""
+def _print_status(board, timer=None):
+    """Affiche les informations sur l'état de la partie et les horloges si fournies."""
     if board.global_winner == EMPTY:
         player_sym = _SYM[board.current_player]
         ag = board.active_grid
@@ -121,12 +121,21 @@ def _print_status(board):
             zone = f"sous-grille ({ag[0]+1},{ag[1]+1})"
         else:
             zone = "au choix"
-        print(f"  Tour du joueur {player_sym} | Zone : {zone} | Coups : {board.move_count}")
+        base = f"  Tour du joueur {player_sym} | Zone : {zone} | Coups : {board.move_count}"
     elif board.global_winner == DRAW:
-        print(f"  === MATCH NUL === ({board.move_count} coups)")
+        base = f"  === MATCH NUL === ({board.move_count} coups)"
     else:
         sym = _SYM[board.global_winner]
-        print(f"  === VICTOIRE de {sym} === ({board.move_count} coups)")
+        base = f"  === VICTOIRE de {sym} === ({board.move_count} coups)"
+
+    if timer is not None:
+        tx = timer.get_player_time(PLAYER_X)
+        to = timer.get_player_time(PLAYER_O)
+        # format times
+        tstr = f" | Temps total: {timer.total_time():.2f}s | X: {tx:.2f}s | O: {to:.2f}s"
+        print(base + tstr)
+    else:
+        print(base)
 
 
 def display_move_prompt(board):

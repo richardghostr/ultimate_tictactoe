@@ -17,6 +17,7 @@ from .display import (
     display_board, display_move_prompt,
     display_ai_thinking, display_ai_move, parse_human_move
 )
+from .clock import GameTimer
 
 
 class Game:
@@ -40,6 +41,10 @@ class Game:
         self.board = Board()
         self.history = []     # liste des coups joués
         self.timings = []     # durées par coup (pour les stats)
+        # per-player timings
+        self.per_player_timings = {PLAYER_X: [], PLAYER_O: []}
+        # game timer (total + per-player clocks)
+        self.timer = GameTimer()
 
     def run(self):
         """
@@ -52,17 +57,25 @@ class Game:
         if self.show_board:
             print("\n=== Ultimate Tic Tac Toe ===")
             print(f"  {self.player_x.name} (X) vs {self.player_o.name} (O)\n")
-            display_board(self.board)
+            display_board(self.board, timer=self.timer)
 
         last_move = None
+
+        # démarrer le chronométrage total et celui du joueur X (qui commence)
+        self.timer.start_total()
+        self.timer.start_for(self.board.current_player)
 
         while not self.board.is_terminal():
             current = self._current_player_obj()
 
-            # Obtenir le coup
+            # Obtenir le coup (on démarre l'horloge du joueur courant si nécessaire)
+            self.timer.start_for(self.board.current_player)
             start = time.time()
             move = self._get_move(current)
             elapsed = time.time() - start
+
+            # Stopper l'horloge du joueur courant aussitôt qu'il a joué
+            self.timer.stop_for(current_player := self.board.current_player)
 
             if move is None:
                 # Ne devrait pas arriver si tout est correct
@@ -70,21 +83,29 @@ class Game:
 
             self.history.append(move)
             self.timings.append(elapsed)
+            self.per_player_timings[current_player].append(elapsed)
 
             # Appliquer le coup
             self.board = apply_move(self.board, move)
             last_move = move
 
+            # Lorsque le prochain joueur prend la main, démarrer sa montre
+            if not self.board.is_terminal():
+                self.timer.switch_to(self.board.current_player)
+
             # Affichage
-            if self.show_board:
-                if current.is_human:
-                    pass  # le plateau a déjà été affiché avant la saisie
-                else:
-                    display_ai_move(move)
-                display_board(self.board, last_move=last_move)
+                if self.show_board:
+                    if current.is_human:
+                        pass  # le plateau a déjà été affiché avant la saisie
+                    else:
+                        display_ai_move(move)
+                    display_board(self.board, last_move=last_move, timer=self.timer)
 
         # Fin de partie
         result = self.board.global_winner
+        # Stopper toutes les montres et le chronomètre total
+        self.timer.stop_all()
+
         if self.show_board:
             self._display_result(result)
 
@@ -133,9 +154,18 @@ class Game:
         elif result == PLAYER_O:
             print(f"  RÉSULTAT : {self.player_o.name} (O) gagne !")
         print(f"  Nombre de coups : {self.board.move_count}")
-        if self.timings:
-            avg = sum(self.timings) / len(self.timings)
-            print(f"  Temps moyen par coup : {avg:.3f}s")
+
+        total = self.timer.total_time()
+        tx = self.timer.get_player_time(PLAYER_X)
+        to = self.timer.get_player_time(PLAYER_O)
+        moves_x = len(self.per_player_timings[PLAYER_X])
+        moves_o = len(self.per_player_timings[PLAYER_O])
+        avg_x = (sum(self.per_player_timings[PLAYER_X]) / moves_x) if moves_x else 0.0
+        avg_o = (sum(self.per_player_timings[PLAYER_O]) / moves_o) if moves_o else 0.0
+
+        print(f"  Temps total de la partie : {total:.3f}s")
+        print(f"  Temps joueur X ({self.player_x.name}) : {tx:.3f}s — moy. par coup {avg_x:.3f}s")
+        print(f"  Temps joueur O ({self.player_o.name}) : {to:.3f}s — moy. par coup {avg_o:.3f}s")
         print("="*40 + "\n")
 
     def get_stats(self):
@@ -144,6 +174,11 @@ class Game:
 
         Utilisé pour le scoring des combats IA vs IA.
         """
+        total = self.timer.total_time()
+        tx = self.timer.get_player_time(PLAYER_X)
+        to = self.timer.get_player_time(PLAYER_O)
+        moves_x = len(self.per_player_timings[PLAYER_X])
+        moves_o = len(self.per_player_timings[PLAYER_O])
         return {
             'winner': self.board.global_winner,
             'move_count': self.board.move_count,
@@ -151,4 +186,11 @@ class Game:
             'avg_time': sum(self.timings) / len(self.timings) if self.timings else 0,
             'max_time': max(self.timings) if self.timings else 0,
             'history': self.history,
+            'total_time': total,
+            'time_x': tx,
+            'time_o': to,
+            'avg_time_x': (sum(self.per_player_timings[PLAYER_X]) / moves_x) if moves_x else 0,
+            'avg_time_o': (sum(self.per_player_timings[PLAYER_O]) / moves_o) if moves_o else 0,
+            'moves_x': moves_x,
+            'moves_o': moves_o,
         }
